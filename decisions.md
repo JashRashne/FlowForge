@@ -24,6 +24,7 @@ This document serves as the living **Architecture Decision Record (ADR)** and co
 10. [ADR-10: Event Relay Batch Processing, Partial Progress & At-Least-Once Guarantees](#adr-10-event-relay-batch-processing-partial-progress--at-least-once-guarantees)
 11. [ADR-11: Worker Fleet Coordination, Redis Consumer Groups & Heartbeats](#adr-11-worker-fleet-coordination-redis-consumer-groups--heartbeats)
 12. [ADR-12: Scheduler CTE Dependency Resolution, Crash Recovery & Workflow Lifecycle](#adr-12-scheduler-cte-dependency-resolution-crash-recovery--workflow-lifecycle)
+13. [ADR-13: Unified Server Entrypoint, Chi REST Router & WebSocket Hub](#adr-13-unified-server-entrypoint-chi-rest-router--websocket-hub)
 
 ---
 
@@ -423,6 +424,24 @@ The Scheduler is the control plane coordinator responsible for advancing the DAG
    - Clears `lease_owner` and `lease_token`, increments `attempt = attempt + 1`, resets `state = 'READY'`, and writes a new outbox event so another worker automatically picks it up.
 3. **Workflow Terminal State Tracking**:
    - When all tasks in a run reach `SUCCEEDED`, the workflow run is atomically transitioned to `SUCCEEDED` and a `workflow.succeeded` event is emitted.
+
+---
+
+## ADR-13: Unified Server Entrypoint, Chi REST Router & WebSocket Hub
+
+### The Context
+The FlowForge backend requires a clean operational runtime that can run all distributed roles (HTTP REST API, WebSocket Broadcaster, Event Relay, Scheduler, and Worker Fleet) either within a single lightweight daemon process (for simple local development and single-container deployments) or split into isolated microservices without code modifications.
+
+### The Decision
+1. **Lightweight Chi HTTP Router**:
+   - Use `go-chi/chi/v5` for $O(1)$ radix-tree route matching with standard Go `http.Handler` interfaces.
+   - Enforce DAG cycle validation at the API boundary before hitting PostgreSQL storage.
+2. **WebSocket Real-Time Fan-Out (`coder/websocket`)**:
+   - The `WebSocketHub` maintains active browser client sockets with concurrent write locks.
+   - Subscribes to Redis `stream:events` and streams live state updates directly to UI viewers.
+3. **Graceful OS Signal Shutdown**:
+   - `cmd/server/main.go` captures `SIGINT` / `SIGTERM` signals and uses Go's `context.CancelFunc` to gracefully flush running tasks, drain the HTTP server, and close connection pools cleanly.
+
 
 
 
