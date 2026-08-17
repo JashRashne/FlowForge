@@ -21,6 +21,7 @@ This document serves as the living **Architecture Decision Record (ADR)** and co
 7. [ADR-07: Unified Event Envelope & Distributed Tracing](#adr-07-unified-event-envelope--distributed-tracing)
 8. [ADR-08: Partial Indexing Strategy for High-Throughput Scheduler Loops](#adr-08-partial-indexing-strategy-for-high-throughput-scheduler-loops)
 9. [ADR-09: Transactional Workflow Run Initialization & Outbox Fan-out](#adr-09-transactional-workflow-run-initialization--outbox-fan-out)
+10. [ADR-10: Event Relay Batch Processing, Partial Progress & At-Least-Once Guarantees](#adr-10-event-relay-batch-processing-partial-progress--at-least-once-guarantees)
 
 ---
 
@@ -340,4 +341,24 @@ Perform graph resolution in-memory (`dag.BuildGraph` + `GetRoots()`) and execute
 ### First-Principles Rationale
 1. **Zero Intermediate State Exposure**: Other transactions will never see a `workflow_run` without its corresponding tasks, or tasks in `READY` without their corresponding outbox events.
 2. **Crash-Resilience**: If the process crashes during submission, the database automatically rolls back completely. If it commits, the pending outbox events are guaranteed to be picked up by the Event Relay upon restart.
+
+---
+
+## ADR-10: Event Relay Batch Processing, Partial Progress & At-Least-Once Guarantees
+
+### The Context
+The Event Relay periodically fetches a batch of $N$ unsent outbox records from PostgreSQL and publishes them to Redis Streams before updating `sent_at = NOW()`. If a network glitch or Redis timeout occurs on the $K$-th record ($1 \le K \le N$), how should the batch report progress and handle retries?
+
+### The Decision
+1. **Sequential Per-Item Processing with Accurate Partial Counter**:
+   - Maintain a local `processed := 0` counter.
+   - For each record: publish to `stream:events` (and `stream:tasks` if `task.ready`), then execute `MarkSent(ctx, record.ID)`.
+   - On success of `MarkSent`, increment `processed++`.
+   - On error on the $K$-th record, immediately return `(processed, err)`.
+2. **Postgres-First Idempotency**:
+   - `MarkSent` is performed **after** the Redis `XADD` call.
+   - If `XADD` succeeds but `MarkSent` fails (or the relay crashes before updating Postgres), the next iteration will re-fetch this unsent record and redeliver it to Redis.
+   - Because downstream workers use **atomic SQL lease fencing**, duplicate stream deliveries are completely safe and idempotent.
+   - We prefer **At-Least-Once Delivery** (duplicate message in stream) over risking **At-Most-Once Delivery** (marking sent before publishing, which could lose events forever if publishing fails).
+
 
