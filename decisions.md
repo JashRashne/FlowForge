@@ -23,6 +23,7 @@ This document serves as the living **Architecture Decision Record (ADR)** and co
 9. [ADR-09: Transactional Workflow Run Initialization & Outbox Fan-out](#adr-09-transactional-workflow-run-initialization--outbox-fan-out)
 10. [ADR-10: Event Relay Batch Processing, Partial Progress & At-Least-Once Guarantees](#adr-10-event-relay-batch-processing-partial-progress--at-least-once-guarantees)
 11. [ADR-11: Worker Fleet Coordination, Redis Consumer Groups & Heartbeats](#adr-11-worker-fleet-coordination-redis-consumer-groups--heartbeats)
+12. [ADR-12: Scheduler CTE Dependency Resolution, Crash Recovery & Workflow Lifecycle](#adr-12-scheduler-cte-dependency-resolution-crash-recovery--workflow-lifecycle)
 
 ---
 
@@ -381,6 +382,48 @@ When multiple worker processes run horizontally across independent containers or
    - If a worker dies (OOM, machine crash, kill signal), its heartbeat expires in 5 seconds, allowing the Telemetry UI and Scheduler to identify dead nodes.
 4. **Adapter Isolation**:
    - Task execution logic is abstracted behind the `TaskAdapter` interface (`HTTPAdapter`, `SyntheticAdapter`), keeping the worker engine runtime generic and extensible.
+
+---
+
+## ADR-12: Scheduler CTE Dependency Resolution, Crash Recovery & Workflow Lifecycle
+
+### The Context
+The Scheduler is the control plane coordinator responsible for advancing the DAG through time, promoting blocked tasks when upstream dependencies succeed, recovering tasks abandoned by crashed workers, and marking completed workflows.
+
+### The Decision
+1. **Atomic DAG Dependency Resolution via Common Table Expression (CTE)**:
+   - Instead of fetching all tasks into application memory and computing dependencies one by one, the Scheduler executes an atomic SQL query using a CTE with a `NOT EXISTS` anti-join:
+     ```sql
+     WITH ready_candidates AS (
+         SELECT tr.id AS task_run_id, tr.workflow_run_id, tr.node_id, wn.task_type, wn.config
+         FROM task_runs tr
+         JOIN workflow_runs wr ON tr.workflow_run_id = wr.id
+         JOIN workflow_nodes wn ON wr.workflow_id = wn.workflow_id AND tr.node_id = wn.node_id
+         WHERE tr.state = 'BLOCKED'
+           AND wr.state = 'RUNNING'
+           AND NOT EXISTS (
+               -- Assert that ZERO predecessor parent tasks are unfinished
+               SELECT 1
+               FROM workflow_edges we
+               JOIN task_runs parent_tr ON parent_tr.workflow_run_id = tr.workflow_run_id AND parent_tr.node_id = we.from_node
+               WHERE we.workflow_id = wr.workflow_id
+                 AND we.to_node = tr.node_id
+                 AND parent_tr.state != 'SUCCEEDED'
+           )
+     )
+     UPDATE task_runs
+     SET state = 'READY', version = task_runs.version + 1
+     FROM ready_candidates
+     WHERE task_runs.id = ready_candidates.task_run_id
+     RETURNING ...;
+     ```
+   - All newly unlocked tasks receive `task.ready` outbox events in the **same transaction**.
+2. **Lease Crash Recovery (Self-Healing)**:
+   - Scans for tasks where `state IN ('LEASED', 'RUNNING')` and `lease_expires_at < NOW()`.
+   - Clears `lease_owner` and `lease_token`, increments `attempt = attempt + 1`, resets `state = 'READY'`, and writes a new outbox event so another worker automatically picks it up.
+3. **Workflow Terminal State Tracking**:
+   - When all tasks in a run reach `SUCCEEDED`, the workflow run is atomically transitioned to `SUCCEEDED` and a `workflow.succeeded` event is emitted.
+
 
 
 
