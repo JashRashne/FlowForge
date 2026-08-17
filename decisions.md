@@ -25,6 +25,7 @@ This document serves as the living **Architecture Decision Record (ADR)** and co
 11. [ADR-11: Worker Fleet Coordination, Redis Consumer Groups & Heartbeats](#adr-11-worker-fleet-coordination-redis-consumer-groups--heartbeats)
 12. [ADR-12: Scheduler CTE Dependency Resolution, Crash Recovery & Workflow Lifecycle](#adr-12-scheduler-cte-dependency-resolution-crash-recovery--workflow-lifecycle)
 13. [ADR-13: Unified Server Entrypoint, Chi REST Router & WebSocket Hub](#adr-13-unified-server-entrypoint-chi-rest-router--websocket-hub)
+14. [ADR-14: Neobrutalist UI/UX & Live WebSocket DAG Telemetry](#adr-14-neobrutalist-uiux--live-websocket-dag-telemetry)
 
 ---
 
@@ -441,6 +442,23 @@ The FlowForge backend requires a clean operational runtime that can run all dist
    - Subscribes to Redis `stream:events` and streams live state updates directly to UI viewers.
 3. **Graceful OS Signal Shutdown**:
    - `cmd/server/main.go` captures `SIGINT` / `SIGTERM` signals and uses Go's `context.CancelFunc` to gracefully flush running tasks, drain the HTTP server, and close connection pools cleanly.
+
+---
+
+## ADR-14: Neobrutalist UI/UX & Live WebSocket DAG Telemetry
+
+### The Context
+Distributed workflow orchestrators are complex background machinery. To make the architecture demonstrable and intuitive, the frontend dashboard must expose distributed phenomena (lease expirations, worker deaths, duplicate suppressions, DAG unlocks) visually in real-time.
+
+### The Decision
+1. **Neobrutalistic Design Language**:
+   - High-contrast 3px solid black borders, hard offset box-shadows (`4px 4px 0px #000`), vibrant retro-pop palette (`#FFE600`, `#00F0FF`, `#FF5E5E`, `#A3E635`), and monospace metadata typography (`JetBrains Mono` + `Space Grotesk`).
+2. **Real-Time WebSocket Stream Hydration**:
+   - Browser opens a single persistent WebSocket connection to `/ws/events`.
+   - Incoming `EventEnvelope` objects immediately update node state badges, worker lease badges, and the live terminal event feed without requiring manual page refreshes.
+3. **Interactive Chaos Engineering Lab**:
+   - Built-in toolbar allowing visitors to kill specific worker heartbeats, launch multi-node diamond/fan-out benchmark workloads, and trigger poison tasks to inspect Dead Letter Queue (DLQ) quarantining.
+
 
 
 

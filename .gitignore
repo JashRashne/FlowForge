@@ -37,3 +37,15 @@ Thumbs.db
 # Documents & Binary assets
 *.pdf
 
+# Node & Frontend dependencies and builds
+node_modules/
+**/node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+dist/
+**/dist/
+.vite/
+
+

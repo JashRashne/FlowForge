@@ -1,0 +1,236 @@
+:root {
+  --font-heading: 'Space Grotesk', -apple-system, sans-serif;
+  --font-body: 'Inter', -apple-system, sans-serif;
+  --font-mono: 'JetBrains Mono', monospace;
+
+  /* Neobrutalist Color Palette */
+  --bg-main: #F4F0EA;
+  --bg-card: #FFFFFF;
+  --text-main: #111111;
+  --text-muted: #555555;
+  --border-color: #000000;
+  --border-width: 3px;
+
+  /* Accent Pops */
+  --neo-yellow: #FFE600;
+  --neo-cyan: #00F0FF;
+  --neo-coral: #FF5E5E;
+  --neo-purple: #C084FC;
+  --neo-green: #10B981;
+  --neo-lime: #A3E635;
+  --neo-orange: #FB923C;
+  --neo-blue: #38BDF8;
+
+  /* Shadows */
+  --shadow-sm: 2px 2px 0px #000000;
+  --shadow-md: 4px 4px 0px #000000;
+  --shadow-lg: 6px 6px 0px #000000;
+  --shadow-xl: 8px 8px 0px #000000;
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  font-family: var(--font-body);
+  background-color: var(--bg-main);
+  color: var(--text-main);
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  background-image: radial-gradient(#000000 1px, transparent 1px);
+  background-size: 24px 24px;
+}
+
+h1, h2, h3, h4, h5, h6 {
+  font-family: var(--font-heading);
+  font-weight: 800;
+  letter-spacing: -0.02em;
+}
+
+code, pre, .mono {
+  font-family: var(--font-mono);
+}
+
+/* =========================================
+   NEOBRUTALIST COMPONENT UTILITIES
+   ========================================= */
+
+.neo-card {
+  background: var(--bg-card);
+  border: var(--border-width) solid var(--border-color);
+  box-shadow: var(--shadow-md);
+  border-radius: 8px;
+  transition: all 0.15s ease;
+}
+
+.neo-card-interactive:hover {
+  transform: translate(-2px, -2px);
+  box-shadow: var(--shadow-lg);
+}
+
+.neo-btn {
+  font-family: var(--font-heading);
+  font-weight: 700;
+  font-size: 0.95rem;
+  padding: 0.6rem 1.2rem;
+  border: var(--border-width) solid var(--border-color);
+  background: #FFFFFF;
+  color: var(--text-main);
+  box-shadow: var(--shadow-md);
+  border-radius: 6px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  transition: all 0.1s ease;
+  user-select: none;
+  text-decoration: none;
+}
+
+.neo-btn:hover {
+  transform: translate(-2px, -2px);
+  box-shadow: var(--shadow-lg);
+}
+
+.neo-btn:active {
+  transform: translate(2px, 2px);
+  box-shadow: 1px 1px 0px #000000;
+}
+
+.neo-btn-primary {
+  background: var(--neo-yellow);
+}
+
+.neo-btn-cyan {
+  background: var(--neo-cyan);
+}
+
+.neo-btn-coral {
+  background: var(--neo-coral);
+  color: #FFFFFF;
+}
+
+.neo-btn-purple {
+  background: var(--neo-purple);
+}
+
+.neo-btn-green {
+  background: var(--neo-green);
+  color: #FFFFFF;
+}
+
+.neo-badge {
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  font-weight: 800;
+  padding: 0.2rem 0.5rem;
+  border: 2px solid #000000;
+  box-shadow: 2px 2px 0px #000000;
+  border-radius: 4px;
+  text-transform: uppercase;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+}
+
+/* Status Badges */
+.badge-blocked {
+  background: #E5E7EB;
+  color: #374151;
+}
+
+.badge-ready {
+  background: var(--neo-yellow);
+  color: #000000;
+}
+
+.badge-leased {
+  background: var(--neo-cyan);
+  color: #000000;
+}
+
+.badge-running {
+  background: var(--neo-purple);
+  color: #000000;
+  animation: pulse-border 1.5s infinite;
+}
+
+.badge-succeeded {
+  background: var(--neo-lime);
+  color: #000000;
+}
+
+.badge-retry_wait {
+  background: var(--neo-orange);
+  color: #000000;
+}
+
+.badge-failed {
+  background: var(--neo-coral);
+  color: #FFFFFF;
+}
+
+.badge-dlq {
+  background: #000000;
+  color: #FF5E5E;
+}
+
+@keyframes pulse-border {
+  0%, 100% {
+    box-shadow: 3px 3px 0px #000000;
+  }
+  50% {
+    box-shadow: 5px 5px 0px #000000, 0 0 10px rgba(192, 132, 252, 0.6);
+  }
+}
+
+/* Terminal & Log Styling */
+.terminal-window {
+  background: #18181B;
+  color: #4ADE80;
+  border: var(--border-width) solid #000000;
+  box-shadow: var(--shadow-md);
+  border-radius: 8px;
+  font-family: var(--font-mono);
+  overflow: hidden;
+}
+
+.terminal-header {
+  background: #27272A;
+  padding: 0.5rem 0.8rem;
+  border-bottom: 2px solid #000000;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.terminal-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  border: 1.5px solid #000000;
+  display: inline-block;
+}
+
+.terminal-dot-red { background: #FF5F56; }
+.terminal-dot-yellow { background: #FFBD2E; }
+.terminal-dot-green { background: #27C93F; }
+
+/* Custom Scrollbar */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: #E5E7EB;
+  border-left: 2px solid #000000;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #000000;
+  border-radius: 4px;
+}
