@@ -1,63 +1,57 @@
 import React from 'react';
-import { Activity, ShieldCheck, Zap, Database, RefreshCw } from 'lucide-react';
+import { Activity, ShieldCheck, Zap, Database, RefreshCw, Layers } from 'lucide-react';
 
-export default function Navbar({ isConnected, workerCount, activeRunID, onRefresh }) {
+export default function Navbar({ isConnected, workerCount, activeRunID, onRefresh, isSimulationMode }) {
   return (
-    <header className="neo-card" style={{ marginBottom: '1.5rem', padding: '1rem 1.5rem', background: '#FFFFFF', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+    <header className="min-card" style={{ marginBottom: '1.25rem', padding: '0.85rem 1.5rem', background: '#FFFFFF', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '1rem' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: '0.85rem' }}>
         <div style={{
-          width: '42px',
-          height: '42px',
-          background: 'var(--neo-yellow)',
-          border: '3px solid #000000',
-          boxShadow: '3px 3px 0px #000000',
+          width: '36px',
+          height: '36px',
+          background: 'var(--accent-primary)',
+          color: '#FFFFFF',
           borderRadius: '8px',
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'center',
-          fontWeight: 900,
-          fontSize: '1.4rem'
+          fontWeight: 800,
+          fontSize: '1.1rem'
         }}>
           ⚡
         </div>
         <div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
-            <h1 style={{ fontSize: '1.5rem', lineHeight: 1.1 }}>FlowForge</h1>
-            <span className="neo-badge" style={{ background: 'var(--neo-cyan)' }}>v1.1 Go</span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+            <h1 style={{ fontSize: '1.2rem', fontWeight: 800, letterSpacing: '-0.02em' }}>FlowForge</h1>
+            <span style={{ fontSize: '0.72rem', background: 'var(--bg-subtle)', color: 'var(--text-secondary)', padding: '0.15rem 0.45rem', borderRadius: '4px', fontWeight: 700, fontFamily: 'var(--font-mono)' }}>
+              v1.1 Go
+            </span>
           </div>
-          <p style={{ fontSize: '0.82rem', color: 'var(--text-muted)', fontWeight: 600 }}>
-            Fault-Tolerant Distributed Workflow Orchestration Engine
+          <p style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>
+            Distributed Workflow Orchestration Engine & Crash Recovery Lab
           </p>
         </div>
       </div>
 
-      <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
         {/* Connection Status */}
-        <div className="neo-badge" style={{
-          background: isConnected ? 'var(--neo-lime)' : 'var(--neo-coral)',
-          color: isConnected ? '#000000' : '#FFFFFF'
+        <div className="status-pill" style={{
+          background: isConnected ? 'var(--state-succeeded-bg)' : 'var(--state-failed-bg)',
+          color: isConnected ? '#047857' : '#B91C1C'
         }}>
-          <Activity size={14} />
-          {isConnected ? 'WS LIVE CONNECTED' : 'WS RECONNECTING'}
+          <Activity size={12} />
+          {isSimulationMode ? 'SIMULATION CLOCK' : (isConnected ? 'WS LIVE' : 'WS RECONNECTING')}
         </div>
 
-        {/* Worker Fleet Badge */}
-        <div className="neo-badge" style={{ background: 'var(--neo-purple)', color: '#000000' }}>
-          <Zap size={14} />
-          {workerCount} WORKERS ACTIVE
+        {/* Worker Pool */}
+        <div className="status-pill" style={{ background: 'var(--bg-subtle)', color: 'var(--text-secondary)' }}>
+          <Zap size={12} color="#6366F1" />
+          {workerCount} WORKERS
         </div>
 
-        {/* Active Run */}
-        {activeRunID && (
-          <div className="neo-badge" style={{ background: '#FFFFFF', color: '#000000' }}>
-            <Database size={14} />
-            RUN: {activeRunID.slice(0, 8)}...
-          </div>
-        )}
-
-        <button onClick={onRefresh} className="neo-btn" style={{ padding: '0.4rem 0.8rem', fontSize: '0.85rem' }}>
-          <RefreshCw size={15} />
-          Sync
+        {/* Sync Button */}
+        <button onClick={onRefresh} className="btn btn-sm btn-outline">
+          <RefreshCw size={13} />
+          Sync State
         </button>
       </div>
     </header>

@@ -1,31 +1,26 @@
 :root {
   --font-heading: 'Space Grotesk', -apple-system, sans-serif;
-  --font-body: 'Inter', -apple-system, sans-serif;
+  --font-sans: 'Inter', -apple-system, sans-serif;
   --font-mono: 'JetBrains Mono', monospace;
 
-  /* Neobrutalist Color Palette */
-  --bg-main: #F4F0EA;
+  /* Warm Cream & High-Contrast Neobrutalism */
+  --bg-canvas: #FBF9F4;
   --bg-card: #FFFFFF;
-  --text-main: #111111;
-  --text-muted: #555555;
-  --border-color: #000000;
-  --border-width: 3px;
+  --text-main: #000000;
+  --text-muted: #52525B;
+  
+  --border-main: 2.5px solid #000000;
+  --shadow-main: 4px 4px 0px #000000;
+  --shadow-hover: 6px 6px 0px #000000;
+  --shadow-active: 1px 1px 0px #000000;
 
-  /* Accent Pops */
-  --neo-yellow: #FFE600;
-  --neo-cyan: #00F0FF;
-  --neo-coral: #FF5E5E;
-  --neo-purple: #C084FC;
-  --neo-green: #10B981;
-  --neo-lime: #A3E635;
-  --neo-orange: #FB923C;
-  --neo-blue: #38BDF8;
-
-  /* Shadows */
-  --shadow-sm: 2px 2px 0px #000000;
-  --shadow-md: 4px 4px 0px #000000;
-  --shadow-lg: 6px 6px 0px #000000;
-  --shadow-xl: 8px 8px 0px #000000;
+  /* Curated Retro Pastel Pops */
+  --pop-yellow: #FFE600;
+  --pop-cyan: #67E8F9;
+  --pop-green: #86EFAC;
+  --pop-purple: #D8B4FE;
+  --pop-coral: #FCA5A5;
+  --pop-orange: #FDBA74;
 }
 
 * {
@@ -35,8 +30,8 @@
 }
 
 body {
-  font-family: var(--font-body);
-  background-color: var(--bg-main);
+  font-family: var(--font-sans);
+  background-color: var(--bg-canvas);
   color: var(--text-main);
   line-height: 1.5;
   -webkit-font-smoothing: antialiased;
@@ -44,193 +39,95 @@ body {
   background-size: 24px 24px;
 }
 
-h1, h2, h3, h4, h5, h6 {
+h1, h2, h3, h4 {
   font-family: var(--font-heading);
   font-weight: 800;
   letter-spacing: -0.02em;
 }
 
-code, pre, .mono {
-  font-family: var(--font-mono);
-}
-
-/* =========================================
-   NEOBRUTALIST COMPONENT UTILITIES
-   ========================================= */
-
-.neo-card {
-  background: var(--bg-card);
-  border: var(--border-width) solid var(--border-color);
-  box-shadow: var(--shadow-md);
-  border-radius: 8px;
-  transition: all 0.15s ease;
-}
-
-.neo-card-interactive:hover {
-  transform: translate(-2px, -2px);
-  box-shadow: var(--shadow-lg);
-}
-
+/* Authentic Tactile Neobrutalist Buttons */
 .neo-btn {
   font-family: var(--font-heading);
   font-weight: 700;
-  font-size: 0.95rem;
-  padding: 0.6rem 1.2rem;
-  border: var(--border-width) solid var(--border-color);
+  font-size: 0.88rem;
+  padding: 0.55rem 1.1rem;
+  border: var(--border-main);
   background: #FFFFFF;
-  color: var(--text-main);
-  box-shadow: var(--shadow-md);
-  border-radius: 6px;
+  color: #000000;
+  box-shadow: var(--shadow-main);
+  border-radius: 8px;
   cursor: pointer;
   display: inline-flex;
   align-items: center;
   gap: 0.5rem;
   transition: all 0.1s ease;
   user-select: none;
-  text-decoration: none;
 }
 
 .neo-btn:hover {
   transform: translate(-2px, -2px);
-  box-shadow: var(--shadow-lg);
+  box-shadow: var(--shadow-hover);
 }
 
 .neo-btn:active {
   transform: translate(2px, 2px);
-  box-shadow: 1px 1px 0px #000000;
+  box-shadow: var(--shadow-active);
 }
 
-.neo-btn-primary {
-  background: var(--neo-yellow);
+.neo-btn-primary { background: var(--pop-yellow); }
+.neo-btn-green { background: var(--pop-green); }
+.neo-btn-cyan { background: var(--pop-cyan); }
+.neo-btn-purple { background: var(--pop-purple); }
+.neo-btn-coral { background: var(--pop-coral); }
+
+.neo-btn-sm {
+  padding: 0.35rem 0.75rem;
+  font-size: 0.8rem;
+  box-shadow: 3px 3px 0px #000000;
 }
 
-.neo-btn-cyan {
-  background: var(--neo-cyan);
+/* Card Box */
+.neo-box {
+  background: var(--bg-card);
+  border: var(--border-main);
+  box-shadow: var(--shadow-main);
+  border-radius: 10px;
 }
 
-.neo-btn-coral {
-  background: var(--neo-coral);
-  color: #FFFFFF;
-}
-
-.neo-btn-purple {
-  background: var(--neo-purple);
-}
-
-.neo-btn-green {
-  background: var(--neo-green);
-  color: #FFFFFF;
-}
-
-.neo-badge {
+/* Badges */
+.neo-pill {
   font-family: var(--font-mono);
-  font-size: 0.75rem;
+  font-size: 0.72rem;
   font-weight: 800;
-  padding: 0.2rem 0.5rem;
+  padding: 0.2rem 0.55rem;
   border: 2px solid #000000;
   box-shadow: 2px 2px 0px #000000;
-  border-radius: 4px;
-  text-transform: uppercase;
+  border-radius: 6px;
   display: inline-flex;
   align-items: center;
   gap: 0.3rem;
+  text-transform: uppercase;
 }
 
-/* Status Badges */
-.badge-blocked {
-  background: #E5E7EB;
-  color: #374151;
+.pill-blocked { background: #E4E4E7; color: #52525B; }
+.pill-ready { background: var(--pop-yellow); color: #000000; }
+.pill-leased { background: var(--pop-cyan); color: #000000; }
+.pill-running { background: var(--pop-purple); color: #000000; animation: bounce-subtle 1.5s infinite; }
+.pill-succeeded { background: var(--pop-green); color: #000000; }
+.pill-failed { background: var(--pop-coral); color: #000000; }
+.pill-dlq { background: #18181B; color: #FCA5A5; }
+
+@keyframes bounce-subtle {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-2px); }
 }
 
-.badge-ready {
-  background: var(--neo-yellow);
-  color: #000000;
-}
-
-.badge-leased {
-  background: var(--neo-cyan);
-  color: #000000;
-}
-
-.badge-running {
-  background: var(--neo-purple);
-  color: #000000;
-  animation: pulse-border 1.5s infinite;
-}
-
-.badge-succeeded {
-  background: var(--neo-lime);
-  color: #000000;
-}
-
-.badge-retry_wait {
-  background: var(--neo-orange);
-  color: #000000;
-}
-
-.badge-failed {
-  background: var(--neo-coral);
-  color: #FFFFFF;
-}
-
-.badge-dlq {
-  background: #000000;
-  color: #FF5E5E;
-}
-
-@keyframes pulse-border {
-  0%, 100% {
-    box-shadow: 3px 3px 0px #000000;
-  }
-  50% {
-    box-shadow: 5px 5px 0px #000000, 0 0 10px rgba(192, 132, 252, 0.6);
-  }
-}
-
-/* Terminal & Log Styling */
-.terminal-window {
-  background: #18181B;
-  color: #4ADE80;
-  border: var(--border-width) solid #000000;
-  box-shadow: var(--shadow-md);
-  border-radius: 8px;
-  font-family: var(--font-mono);
-  overflow: hidden;
-}
-
-.terminal-header {
-  background: #27272A;
-  padding: 0.5rem 0.8rem;
-  border-bottom: 2px solid #000000;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-}
-
-.terminal-dot {
-  width: 10px;
-  height: 10px;
-  border-radius: 50%;
-  border: 1.5px solid #000000;
-  display: inline-block;
-}
-
-.terminal-dot-red { background: #FF5F56; }
-.terminal-dot-yellow { background: #FFBD2E; }
-.terminal-dot-green { background: #27C93F; }
-
-/* Custom Scrollbar */
-::-webkit-scrollbar {
-  width: 8px;
-  height: 8px;
-}
-
-::-webkit-scrollbar-track {
-  background: #E5E7EB;
-  border-left: 2px solid #000000;
-}
-
-::-webkit-scrollbar-thumb {
-  background: #000000;
-  border-radius: 4px;
+/* Canvas Area */
+.graph-viewport {
+  background: #FFFFFF;
+  border: var(--border-main);
+  box-shadow: var(--shadow-main);
+  border-radius: 12px;
+  position: relative;
+  overflow: auto;
 }

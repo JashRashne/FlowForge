@@ -1,53 +1,64 @@
 import React from 'react';
-import { Terminal, Trash2 } from 'lucide-react';
+import { Terminal, Trash2, ShieldCheck, Activity } from 'lucide-react';
 
 export default function EventFeed({ events, onClear }) {
   return (
-    <div className="terminal-window" style={{ marginTop: '1.5rem', maxHeight: '350px', display: 'flex', flexDirection: 'column' }}>
-      <div className="terminal-header">
-        <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
-          <span className="terminal-dot terminal-dot-red"></span>
-          <span className="terminal-dot terminal-dot-yellow"></span>
-          <span className="terminal-dot terminal-dot-green"></span>
-          <span style={{ fontSize: '0.8rem', fontWeight: 800, color: '#A1A1AA', marginLeft: '0.4rem' }}>
-            REDIS STREAM EVENT FEED // WS BROADCAST
+    <div className="min-card" style={{ marginTop: '1.25rem', overflow: 'hidden', background: '#FFFFFF' }}>
+      <div style={{
+        padding: '0.75rem 1.25rem',
+        borderBottom: '1px solid var(--border-subtle)',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        background: '#FAFBFD'
+      }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+          <Terminal size={15} color="#6366F1" />
+          <span style={{ fontSize: '0.8rem', fontWeight: 700, fontFamily: 'var(--font-mono)', color: 'var(--text-secondary)' }}>
+            LIVE STREAM EVENT LOG (REDIS STREAM FAN-OUT)
           </span>
         </div>
-        <button
-          onClick={onClear}
-          style={{ background: 'transparent', border: 'none', color: '#A1A1AA', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.3rem', fontSize: '0.75rem' }}
-        >
-          <Trash2 size={13} /> Clear Logs
+
+        <button onClick={onClear} className="btn btn-sm btn-outline" style={{ padding: '0.2rem 0.5rem', fontSize: '0.72rem' }}>
+          <Trash2 size={12} /> Clear
         </button>
       </div>
 
-      <div style={{ padding: '0.8rem', overflowY: 'auto', flex: 1, fontSize: '0.82rem', lineHeight: 1.6 }}>
+      <div style={{
+        maxHeight: '220px',
+        overflowY: 'auto',
+        padding: '0.5rem 1.25rem',
+        fontFamily: 'var(--font-mono)',
+        fontSize: '0.78rem',
+        lineHeight: 1.6
+      }}>
         {events.length === 0 ? (
-          <div style={{ color: '#71717A', fontStyle: 'italic', padding: '1rem' }}>
-            Listening to WebSocket event stream... Run a workflow to view real-time state broadcasts.
+          <div style={{ color: 'var(--text-muted)', padding: '1rem 0', fontStyle: 'italic' }}>
+            Awaiting events... Click a workflow above to watch real-time state broadcasts.
           </div>
         ) : (
           events.map((evt, idx) => {
             const timeStr = new Date(evt.occurred_at || Date.now()).toLocaleTimeString();
-            let eventColor = '#38BDF8';
-            if (evt.event_type?.includes('succeeded')) eventColor = '#4ADE80';
-            if (evt.event_type?.includes('failed') || evt.event_type?.includes('dlq')) eventColor = '#F87171';
-            if (evt.event_type?.includes('ready') || evt.event_type?.includes('leased')) eventColor = '#FDE047';
-            if (evt.event_type?.includes('reassigned')) eventColor = '#C084FC';
+            let eventBadgeClass = 'status-BLOCKED';
+            if (evt.event_type?.includes('succeeded')) eventBadgeClass = 'status-SUCCEEDED';
+            if (evt.event_type?.includes('ready')) eventBadgeClass = 'status-READY';
+            if (evt.event_type?.includes('leased')) eventBadgeClass = 'status-LEASED';
+            if (evt.event_type?.includes('started')) eventBadgeClass = 'status-RUNNING';
+            if (evt.event_type?.includes('failed') || evt.event_type?.includes('dlq')) eventBadgeClass = 'status-FAILED';
 
             return (
-              <div key={idx} style={{ borderBottom: '1px solid #27272A', padding: '0.3rem 0', fontFamily: 'var(--font-mono)' }}>
-                <span style={{ color: '#71717A', marginRight: '0.6rem' }}>[{timeStr}]</span>
-                <span style={{ color: eventColor, fontWeight: 800, marginRight: '0.6rem' }}>
+              <div key={idx} style={{ padding: '0.3rem 0', borderBottom: '1px solid #F1F5F9', display: 'flex', alignItems: 'center', gap: '0.6rem', flexWrap: 'wrap' }}>
+                <span style={{ color: 'var(--text-muted)' }}>[{timeStr}]</span>
+                <span className={`status-pill ${eventBadgeClass}`} style={{ fontSize: '0.68rem', padding: '0.1rem 0.4rem' }}>
                   {evt.event_type}
                 </span>
                 {evt.task_run_id && (
-                  <span style={{ color: '#E4E4E7', marginRight: '0.6rem' }}>
-                    task:{evt.task_run_id.slice(0, 8)}...
+                  <span style={{ color: 'var(--text-secondary)', fontWeight: 600 }}>
+                    task:{evt.task_run_id.slice(0, 8)}
                   </span>
                 )}
                 {evt.payload && (
-                  <span style={{ color: '#A1A1AA' }}>
+                  <span style={{ color: 'var(--text-muted)' }}>
                     {JSON.stringify(evt.payload)}
                   </span>
                 )}
