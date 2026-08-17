@@ -22,6 +22,7 @@ This document serves as the living **Architecture Decision Record (ADR)** and co
 8. [ADR-08: Partial Indexing Strategy for High-Throughput Scheduler Loops](#adr-08-partial-indexing-strategy-for-high-throughput-scheduler-loops)
 9. [ADR-09: Transactional Workflow Run Initialization & Outbox Fan-out](#adr-09-transactional-workflow-run-initialization--outbox-fan-out)
 10. [ADR-10: Event Relay Batch Processing, Partial Progress & At-Least-Once Guarantees](#adr-10-event-relay-batch-processing-partial-progress--at-least-once-guarantees)
+11. [ADR-11: Worker Fleet Coordination, Redis Consumer Groups & Heartbeats](#adr-11-worker-fleet-coordination-redis-consumer-groups--heartbeats)
 
 ---
 
@@ -360,5 +361,26 @@ The Event Relay periodically fetches a batch of $N$ unsent outbox records from P
    - If `XADD` succeeds but `MarkSent` fails (or the relay crashes before updating Postgres), the next iteration will re-fetch this unsent record and redeliver it to Redis.
    - Because downstream workers use **atomic SQL lease fencing**, duplicate stream deliveries are completely safe and idempotent.
    - We prefer **At-Least-Once Delivery** (duplicate message in stream) over risking **At-Most-Once Delivery** (marking sent before publishing, which could lose events forever if publishing fails).
+
+---
+
+## ADR-11: Worker Fleet Coordination, Redis Consumer Groups & Heartbeats
+
+### The Context
+When multiple worker processes run horizontally across independent containers or VMs, they need to consume tasks without lock contention, report health liveness, and survive worker process crashes.
+
+### The Decision
+1. **Redis Consumer Groups (`XREADGROUP`)**:
+   - Workers join the `flowforge-workers` consumer group.
+   - Redis assigns stream messages to available workers and tracks pending unacknowledged deliveries.
+2. **Worker-Level Atomic Lease Guard**:
+   - Before executing, a worker MUST acquire an atomic database lease with a unique `lease_token`.
+   - If another worker already claimed the task or the task was cancelled, the worker immediately acknowledges (`XACK`) the stream message and moves on without executing.
+3. **Ephemeral Liveness Heartbeats**:
+   - While running, workers publish an ephemeral key `worker:{id}` in Redis with a 5-second TTL.
+   - If a worker dies (OOM, machine crash, kill signal), its heartbeat expires in 5 seconds, allowing the Telemetry UI and Scheduler to identify dead nodes.
+4. **Adapter Isolation**:
+   - Task execution logic is abstracted behind the `TaskAdapter` interface (`HTTPAdapter`, `SyntheticAdapter`), keeping the worker engine runtime generic and extensible.
+
 
 

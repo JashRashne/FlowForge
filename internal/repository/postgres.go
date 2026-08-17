@@ -118,6 +118,42 @@ func (r *PostgresRepository) CommitTaskSuccess(
 	return nil
 }
 
+// CommitTaskFailure transitions a task to RETRY_WAIT (if retryAt is set) or FAILED/DLQ.
+// It also enforces lease token fencing so stale workers cannot fail a reassigned task.
+func (r *PostgresRepository) CommitTaskFailure(
+	ctx context.Context,
+	taskID string,
+	leaseToken string,
+	errorMessage string,
+	retryAt *time.Time,
+	targetState domain.TaskState,
+) error {
+	errJSON, _ := json.Marshal(map[string]string{"message": errorMessage})
+
+	query := `
+		UPDATE task_runs
+		SET state = $1,
+		    error = $2::jsonb,
+		    retry_at = $3,
+		    finished_at = CASE WHEN $1 IN ('FAILED', 'DLQ') THEN NOW() ELSE NULL END,
+		    version = version + 1
+		WHERE id = $4::uuid
+		  AND state IN ('LEASED', 'RUNNING')
+		  AND lease_token = $5::uuid;
+	`
+
+	cmdTag, err := r.pool.Exec(ctx, query, string(targetState), string(errJSON), retryAt, taskID, leaseToken)
+	if err != nil {
+		return err
+	}
+
+	if cmdTag.RowsAffected() == 0 {
+		return domain.ErrStaleLeaseCommit
+	}
+
+	return nil
+}
+
 // CreateWorkflow persists a static DAG definition (workflow metadata, nodes, and edges) in a single transaction.
 func (r *PostgresRepository) CreateWorkflow(ctx context.Context, def domain.WorkflowDefinition) error {
 	tx, err := r.pool.Begin(ctx)
