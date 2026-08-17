@@ -1,8 +1,9 @@
 import React from 'react';
-import { Play, Pause, SkipForward, SkipBack, RotateCcw, Sparkles, Zap, Activity, Info, ArrowRight } from 'lucide-react';
+import { Play, Pause, SkipForward, SkipBack, RotateCcw, Sparkles, Zap, Activity, Info, ArrowRight, CheckCircle2, AlertTriangle, ShieldCheck, Flame, WifiOff, Wifi } from 'lucide-react';
 
 export default function StepNarrativeBar({
   isSimulationMode,
+  isBackendConnected,
   currentStepIndex,
   totalSteps,
   stepData,
@@ -18,14 +19,14 @@ export default function StepNarrativeBar({
   if (!isSimulationMode) {
     return (
       <div className="neo-box" style={{
-        padding: '1rem 1.25rem',
-        marginBottom: '1.25rem',
+        padding: '0.85rem 1.25rem',
+        marginBottom: '0.85rem',
         background: '#FFFFFF',
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'space-between',
         flexWrap: 'wrap',
-        gap: '0.85rem'
+        gap: '0.75rem'
       }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.85rem' }}>
           <div style={{
@@ -50,10 +51,17 @@ export default function StepNarrativeBar({
           </div>
         </div>
 
-        <div className="neo-pill pill-running">
-          <Activity size={12} />
-          WEBSOCKET CONNECTED
-        </div>
+        {isBackendConnected ? (
+          <div className="neo-pill pill-running" style={{ background: '#DCFCE7', color: '#166534', border: '1.5px solid #16A34A', fontWeight: 800 }}>
+            <Wifi size={12} />
+            WEBSOCKET LIVE
+          </div>
+        ) : (
+          <div className="neo-pill pill-failed" style={{ background: '#FEE2E2', color: '#991B1B', border: '1.5px solid #DC2626', fontWeight: 800 }}>
+            <WifiOff size={12} />
+            BACKEND OFFLINE
+          </div>
+        )}
       </div>
     );
   }

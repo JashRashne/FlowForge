@@ -448,6 +448,7 @@ export default function App() {
       {/* 2. Structured Step Narrative Bar with Quick Controls */}
       <StepNarrativeBar
         isSimulationMode={isSimulationMode}
+        isBackendConnected={isBackendConnected}
         currentStepIndex={currentStepIndex}
         totalSteps={simulationSteps.length}
         stepData={currentStepData}
