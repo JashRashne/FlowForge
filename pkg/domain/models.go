@@ -32,12 +32,14 @@ func (s TaskState) IsTerminal() bool {
 	return s == StateSucceeded || s == StateFailed || s == StateDLQ
 }
 
-// Common errors for state transitions and graph validation
+// Common errors for state transitions, graph validation, and lease fencing
 var (
 	ErrInvalidStateTransition = errors.New("invalid task state transition")
 	ErrCycleDetected          = errors.New("cycle detected in workflow DAG")
 	ErrNodeNotFound           = errors.New("node not found in DAG")
 	ErrDuplicateNode          = errors.New("duplicate node id in DAG")
+	ErrStaleLeaseCommit       = errors.New("stale lease token: task was reclaimed or already modified")
+	ErrTaskNotLeasable        = errors.New("task cannot be leased: not in READY state or already claimed")
 )
 
 // Node represents a static task definition within a workflow DAG.
