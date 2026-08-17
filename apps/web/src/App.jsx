@@ -1,8 +1,10 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
+import LandingPage from './components/LandingPage';
+import NotFound from './components/NotFound';
 import DAGVisualizer from './components/DAGVisualizer';
 import StepNarrativeBar from './components/StepNarrativeBar';
 import { generateDynamicSimulationSteps } from './utils/dynamicSimulation';
-import { Play, Pause, SkipForward, RotateCcw, Flame, Skull, Cpu, Zap, Activity, Globe, Database, Terminal, ChevronDown, ChevronUp, X, Sparkles, Server, Copy, ShieldAlert, CheckCircle2 } from 'lucide-react';
+import { Play, Pause, SkipForward, RotateCcw, Flame, Skull, Cpu, Zap, Activity, Globe, Database, Terminal, ChevronDown, ChevronUp, X, Sparkles, Server, Copy, ShieldAlert, CheckCircle2, Home, ArrowLeft } from 'lucide-react';
 
 const API_BASE = 'http://localhost:8080';
 const WS_URL = 'ws://localhost:8080/ws/events';
@@ -100,6 +102,34 @@ const PRESETS = {
 };
 
 export default function App() {
+  const resolveRoute = useCallback(() => {
+    if (typeof window === 'undefined') return 'landing';
+    const path = window.location.pathname.replace(/\/+$/, '') || '/';
+    const hash = window.location.hash.replace(/\/+$/, '') || '';
+    if (path === '/simulator' || hash === '#/simulator' || hash === '#simulator') {
+      return 'simulator';
+    }
+    if (path === '/' && (hash === '' || hash === '#/' || hash === '#')) {
+      return 'landing';
+    }
+    return '404';
+  }, []);
+
+  const [currentView, setCurrentView] = useState(() => {
+    if (typeof window !== 'undefined') {
+      const path = window.location.pathname.replace(/\/+$/, '') || '/';
+      const hash = window.location.hash.replace(/\/+$/, '') || '';
+      if (path === '/simulator' || hash === '#/simulator' || hash === '#simulator') {
+        return 'simulator';
+      }
+      if (path === '/' && (hash === '' || hash === '#/' || hash === '#')) {
+        return 'landing';
+      }
+      return '404';
+    }
+    return 'landing';
+  });
+
   const [activePreset, setActivePreset] = useState('diamond');
   const [activeWorkflow, setActiveWorkflow] = useState(PRESETS.diamond);
   const [activeRunID, setActiveRunID] = useState(null);
@@ -112,6 +142,7 @@ export default function App() {
   const [events, setEvents] = useState([]);
   const [selectedTask, setSelectedTask] = useState(null);
   const [showLogs, setShowLogs] = useState(false);
+  const [isBackendConnected, setIsBackendConnected] = useState(false);
 
   // Simulation State
   const [isSimulationMode, setIsSimulationMode] = useState(true);
@@ -119,6 +150,50 @@ export default function App() {
   const [currentStepIndex, setCurrentStepIndex] = useState(0);
   const [isPlaying, setIsPlaying] = useState(false);
   const [simulationSpeed, setSimulationSpeed] = useState(1200);
+
+  // Sync document title with current route (max 2 words)
+  useEffect(() => {
+    if (currentView === 'simulator') {
+      document.title = 'FlowForge Simulator';
+    } else if (currentView === 'landing') {
+      document.title = 'FlowForge';
+    } else if (currentView === '404') {
+      document.title = 'Not Found';
+    }
+  }, [currentView]);
+
+  // Check Go backend connectivity when in Real Cluster mode
+  useEffect(() => {
+    if (!isSimulationMode) {
+      fetch(`${API_BASE}/health`)
+        .then(res => setIsBackendConnected(res.ok))
+        .catch(() => setIsBackendConnected(false));
+    }
+  }, [isSimulationMode]);
+
+  // Sync view state with browser back/forward and hash changes
+  useEffect(() => {
+    const handleNav = () => {
+      setCurrentView(resolveRoute());
+    };
+    handleNav();
+    window.addEventListener('popstate', handleNav);
+    window.addEventListener('hashchange', handleNav);
+    return () => {
+      window.removeEventListener('popstate', handleNav);
+      window.removeEventListener('hashchange', handleNav);
+    };
+  }, [resolveRoute]);
+
+  const navigateToHome = () => {
+    window.history.pushState({}, '', '/');
+    setCurrentView('landing');
+  };
+
+  const navigateToSimulator = () => {
+    window.history.pushState({}, '', '/simulator');
+    setCurrentView('simulator');
+  };
 
   // Initialize / dynamically regenerate simulation steps on preset or worker health changes
   useEffect(() => {
@@ -189,8 +264,11 @@ export default function App() {
     try {
       const wRes = await fetch(`${API_BASE}/workers`);
       if (wRes.ok) {
+        setIsBackendConnected(true);
         const wData = await wRes.json();
         if (wData && wData.length > 0) setWorkers(wData);
+      } else {
+        setIsBackendConnected(false);
       }
       if (activeRunID) {
         const tRes = await fetch(`${API_BASE}/runs/${activeRunID}/tasks`);
@@ -200,7 +278,7 @@ export default function App() {
         }
       }
     } catch (e) {
-      console.error(e);
+      setIsBackendConnected(false);
     }
   }, [activeRunID, isSimulationMode]);
 
@@ -256,6 +334,14 @@ export default function App() {
     }
   };
 
+  if (currentView === '404') {
+    return <NotFound onNavigateHome={navigateToHome} onNavigateSimulator={navigateToSimulator} />;
+  }
+
+  if (currentView === 'landing') {
+    return <LandingPage onLaunchSimulator={navigateToSimulator} />;
+  }
+
   const currentStepData = simulationSteps[currentStepIndex];
 
   // Dynamic Metrics Calculation in real time
@@ -266,32 +352,39 @@ export default function App() {
 
   return (
     <div style={{ maxWidth: '1240px', margin: '0 auto', padding: '1rem' }}>
-      {/* 1. Minimal Header Bar */}
+      {/* 1. Navigation & Header Bar */}
       <header className="neo-box" style={{ padding: '0.65rem 1.25rem', marginBottom: '0.85rem', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '0.75rem' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.85rem' }}>
+          <button
+            onClick={navigateToHome}
+            className="neo-btn neo-btn-sm"
+            title="Return to Landing Page"
+          >
+            <ArrowLeft size={14} />
+            Landing Page
+          </button>
+
           <div style={{
-            width: '38px',
-            height: '38px',
+            width: '36px',
+            height: '36px',
             background: 'var(--pop-yellow)',
-            border: '2.5px solid #000000',
-            boxShadow: '3px 3px 0px #000000',
+            border: '2px solid #000000',
+            boxShadow: '2.5px 2.5px 0px #000000',
             borderRadius: '8px',
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
-            fontSize: '1.2rem',
-            fontWeight: 900
+            flexShrink: 0
           }}>
-            ⚡
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <path d="M13 2L3.5 13.5H12L10.5 22L20.5 10.5H12L13 2Z" fill="#000000" stroke="#000000" strokeWidth="1.5" strokeLinejoin="round" />
+            </svg>
           </div>
           <div>
             <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-              <h1 style={{ fontSize: '1.3rem' }}>FlowForge</h1>
-              <span className="neo-pill pill-ready">v1.1</span>
+              <h1 style={{ fontSize: '1.25rem' }}>FlowForge Lab</h1>
+              <span className="neo-pill pill-ready">v1.1 Go</span>
             </div>
-            <p style={{ fontSize: '0.78rem', color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>
-              Distributed DAG Orchestration Engine
-            </p>
           </div>
         </div>
 
@@ -314,6 +407,43 @@ export default function App() {
           </button>
         </div>
       </header>
+
+      {/* 2. Real Cluster Connection Status Banner (When in Real Mode) */}
+      {!isSimulationMode && (
+        <div className="neo-box" style={{
+          padding: '0.85rem 1.25rem',
+          marginBottom: '0.85rem',
+          background: isBackendConnected ? '#DCFCE7' : '#FEF3C7',
+          borderColor: '#000000',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          flexWrap: 'wrap',
+          gap: '0.75rem'
+        }}>
+          {isBackendConnected ? (
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', fontSize: '0.85rem', fontWeight: 800 }}>
+              <span style={{ display: 'inline-block', width: '10px', height: '10px', borderRadius: '50%', background: '#16A34A', border: '1.5px solid #000' }}></span>
+              <span>🟢 Live Go Server Connected (`localhost:8080`) — WebSockets & Redis Stream Active</span>
+            </div>
+          ) : (
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', fontSize: '0.85rem', fontWeight: 800 }}>
+              <span style={{ display: 'inline-block', width: '10px', height: '10px', borderRadius: '50%', background: '#EAB308', border: '1.5px solid #000' }}></span>
+              <span>📡 Real Go Server is not running on `localhost:8080` (Run `docker compose up -d` & `go run ./cmd/server` to connect local cluster).</span>
+            </div>
+          )}
+
+          {!isBackendConnected && (
+            <button
+              onClick={() => setIsSimulationMode(true)}
+              className="neo-btn neo-btn-sm neo-btn-primary"
+            >
+              <Sparkles size={13} />
+              Switch to In-Browser Simulator
+            </button>
+          )}
+        </div>
+      )}
 
       {/* 2. Structured Step Narrative Bar with Quick Controls */}
       <StepNarrativeBar

@@ -230,7 +230,7 @@ export default function DAGVisualizer({ workflow, taskRuns, onSelectNode, active
                 <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '145px' }}>
                   {run.is_expired ? (
                     <span style={{ background: '#FEE2E2', color: '#DC2626', padding: '0.08rem 0.35rem', border: '1.5px solid #DC2626', borderRadius: '4px', fontWeight: 800, fontSize: '0.68rem', display: 'inline-block' }}>
-                      ⚠️ EXPIRED (W2 DEAD)
+                      ⚠️ EXPIRED ({run.lease_owner ? run.lease_owner.replace('worker-', 'W').toUpperCase() : 'DEAD'})
                     </span>
                   ) : run.is_recovered ? (
                     <span style={{ background: '#E0F2FE', color: '#0369A1', padding: '0.08rem 0.35rem', border: '1.5px solid #0284C7', borderRadius: '4px', fontWeight: 800, fontSize: '0.68rem', display: 'inline-block' }}>
