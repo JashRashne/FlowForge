@@ -124,3 +124,120 @@ func TestPostgresRepository_LeaseFencing(t *testing.T) {
 		t.Errorf("expected output to be worker2's output, got %s", finalOutput)
 	}
 }
+
+func TestPostgresRepository_WorkflowRun_Outbox(t *testing.T) {
+	pool := setupTestDB(t)
+	defer pool.Close()
+
+	ctx := context.Background()
+	repo := NewPostgresRepository(pool)
+
+	// Define Diamond Workflow: A -> B, A -> C, B -> D, C -> D
+	wfID := "11111111-1111-1111-1111-111111111111"
+	def := domain.WorkflowDefinition{
+		ID:          wfID,
+		Name:        "Diamond Data Pipeline",
+		Description: "Extract -> Transform(Parallel) -> Load",
+		Nodes: map[string]domain.Node{
+			"extract":    {ID: "extract", Type: "http", Config: map[string]any{"url": "https://api.example.com/data"}, MaxRetries: 3, TimeoutSec: 30},
+			"transform1": {ID: "transform1", Type: "python", Config: map[string]any{"script": "normalize.py"}, MaxRetries: 2, TimeoutSec: 60},
+			"transform2": {ID: "transform2", Type: "python", Config: map[string]any{"script": "enrich.py"}, MaxRetries: 2, TimeoutSec: 60},
+			"aggregate":  {ID: "aggregate", Type: "synthetic", Config: map[string]any{"operation": "merge"}, MaxRetries: 1, TimeoutSec: 15},
+		},
+		Edges: []domain.Edge{
+			{From: "extract", To: "transform1"},
+			{From: "extract", To: "transform2"},
+			{From: "transform1", To: "aggregate"},
+			{From: "transform2", To: "aggregate"},
+		},
+		CreatedAt: time.Now().UTC(),
+	}
+
+	// 1. Create Workflow in Postgres
+	if err := repo.CreateWorkflow(ctx, def); err != nil {
+		t.Fatalf("failed to create workflow: %v", err)
+	}
+
+	// 2. Fetch Workflow and verify structure
+	fetched, err := repo.GetWorkflow(ctx, wfID)
+	if err != nil {
+		t.Fatalf("failed to get workflow: %v", err)
+	}
+	if len(fetched.Nodes) != 4 || len(fetched.Edges) != 4 {
+		t.Errorf("expected 4 nodes and 4 edges, got %d nodes and %d edges", len(fetched.Nodes), len(fetched.Edges))
+	}
+
+	// 3. Start Workflow Run with atomic outbox emission
+	traceID := "trace-wf-test-999"
+	runID, err := repo.StartWorkflowRun(ctx, wfID, traceID)
+	if err != nil {
+		t.Fatalf("failed to start workflow run: %v", err)
+	}
+
+	// 4. Verify workflow_run record is RUNNING
+	var runState string
+	err = pool.QueryRow(ctx, "SELECT state FROM workflow_runs WHERE id = $1::uuid;", runID).Scan(&runState)
+	if err != nil {
+		t.Fatalf("failed to query workflow run: %v", err)
+	}
+	if runState != "RUNNING" {
+		t.Errorf("expected run state RUNNING, got %s", runState)
+	}
+
+	// 5. Verify task_runs initial states (extract must be READY, others BLOCKED)
+	rows, err := pool.Query(ctx, "SELECT node_id, state FROM task_runs WHERE workflow_run_id = $1::uuid;", runID)
+	if err != nil {
+		t.Fatalf("failed to query task runs: %v", err)
+	}
+	defer rows.Close()
+
+	taskStates := make(map[string]string)
+	for rows.Next() {
+		var nodeID, state string
+		if err := rows.Scan(&nodeID, &state); err != nil {
+			t.Fatalf("scan error: %v", err)
+		}
+		taskStates[nodeID] = state
+	}
+
+	if taskStates["extract"] != string(domain.StateReady) {
+		t.Errorf("expected root task 'extract' to be READY, got %s", taskStates["extract"])
+	}
+	if taskStates["transform1"] != string(domain.StateBlocked) {
+		t.Errorf("expected child task 'transform1' to be BLOCKED, got %s", taskStates["transform1"])
+	}
+	if taskStates["transform2"] != string(domain.StateBlocked) {
+		t.Errorf("expected child task 'transform2' to be BLOCKED, got %s", taskStates["transform2"])
+	}
+	if taskStates["aggregate"] != string(domain.StateBlocked) {
+		t.Errorf("expected child task 'aggregate' to be BLOCKED, got %s", taskStates["aggregate"])
+	}
+
+	// 6. Verify transactional outbox events: exactly 2 unsent events (workflow.started and task.ready for extract)
+	outboxRows, err := pool.Query(ctx, `
+		SELECT event_type, sent_at
+		FROM outbox_events
+		WHERE workflow_run_id = $1::uuid;
+	`, runID)
+	if err != nil {
+		t.Fatalf("failed to query outbox: %v", err)
+	}
+	defer outboxRows.Close()
+
+	var eventTypes []string
+	for outboxRows.Next() {
+		var eventType string
+		var sentAt *time.Time
+		if err := outboxRows.Scan(&eventType, &sentAt); err != nil {
+			t.Fatalf("scan error: %v", err)
+		}
+		if sentAt != nil {
+			t.Errorf("expected initial outbox event sent_at to be NULL, got %v", sentAt)
+		}
+		eventTypes = append(eventTypes, eventType)
+	}
+
+	if len(eventTypes) != 2 {
+		t.Fatalf("expected exactly 2 outbox events, got %d (%v)", len(eventTypes), eventTypes)
+	}
+}

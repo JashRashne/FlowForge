@@ -20,6 +20,7 @@ This document serves as the living **Architecture Decision Record (ADR)** and co
 6. [ADR-06: Solving the Dual-Write Problem with Transactional Outbox](#adr-06-solving-the-dual-write-problem-with-transactional-outbox)
 7. [ADR-07: Unified Event Envelope & Distributed Tracing](#adr-07-unified-event-envelope--distributed-tracing)
 8. [ADR-08: Partial Indexing Strategy for High-Throughput Scheduler Loops](#adr-08-partial-indexing-strategy-for-high-throughput-scheduler-loops)
+9. [ADR-09: Transactional Workflow Run Initialization & Outbox Fan-out](#adr-09-transactional-workflow-run-initialization--outbox-fan-out)
 
 ---
 
@@ -300,3 +301,43 @@ WHERE sent_at IS NULL;
 ### Why Partial Indexes?
 - In a system with 10,000,000 completed tasks and only 50 active tasks, a standard index indexes all 10 million rows.
 - A **partial index** indexes **only the 50 active rows**, fitting entirely in L1/L2 CPU cache and executing in sub-millisecond time.
+
+---
+
+## ADR-09: Transactional Workflow Run Initialization & Outbox Fan-out
+
+### The Context
+Starting a workflow execution involves multiple atomic requirements:
+1. Validating that the workflow DAG definition is acyclic.
+2. Initializing a `workflow_runs` record.
+3. Instantiating `task_runs` for all nodes in the DAG with initial state dependencies resolved (roots as `READY`, dependents as `BLOCKED`).
+4. Emitting notification events (`workflow.started` and `task.ready` for roots) so the Worker fleet and WebSocket UI immediately receive them.
+
+If any failure occurs midway (e.g. power loss after creating the run but before inserting the root tasks), the workflow is corrupted.
+
+### The Decision
+Perform graph resolution in-memory (`dag.BuildGraph` + `GetRoots()`) and execute all database inserts and outbox event emissions within a **single PostgreSQL ACID transaction**:
+
+```
+[ POST /workflows/{id}/runs ]
+          │
+          ▼
+┌─────────────────────────────────────────────────────────────┐
+│ 1. dag.BuildGraph(wfDef) -> graph.TopologicalSort()         │
+│ 2. roots = graph.GetRoots() (InDegree == 0)                 │
+│ 3. BEGIN TRANSACTION                                        │
+│    ├── INSERT INTO workflow_runs (state = 'RUNNING')        │
+│    ├── INSERT INTO task_runs:                               │
+│    │     • root_nodes   -> state = 'READY'                  │
+│    │     • child_nodes  -> state = 'BLOCKED'                │
+│    └── INSERT INTO outbox_events:                           │
+│          • "workflow.started"                               │
+│          • "task.ready" (for each root node)                │
+│    COMMIT TRANSACTION                                       │
+└─────────────────────────────────────────────────────────────┘
+```
+
+### First-Principles Rationale
+1. **Zero Intermediate State Exposure**: Other transactions will never see a `workflow_run` without its corresponding tasks, or tasks in `READY` without their corresponding outbox events.
+2. **Crash-Resilience**: If the process crashes during submission, the database automatically rolls back completely. If it commits, the pending outbox events are guaranteed to be picked up by the Event Relay upon restart.
+
