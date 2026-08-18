@@ -39,6 +39,12 @@ func (r *PostgresRepository) AcquireLease(
 		durationSec = 30 // default 30s lease
 	}
 
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback(ctx)
+
 	query := `
 		UPDATE task_runs
 		SET state = 'LEASED',
@@ -56,7 +62,7 @@ func (r *PostgresRepository) AcquireLease(
 	var leaseTokenUUID *string
 	var leaseOwner *string
 
-	err := r.pool.QueryRow(ctx, query, workerID, newToken, durationSec, taskID).Scan(
+	err = tx.QueryRow(ctx, query, workerID, newToken, durationSec, taskID).Scan(
 		&tr.ID,
 		&tr.WorkflowRunID,
 		&tr.NodeID,
@@ -83,6 +89,29 @@ func (r *PostgresRepository) AcquireLease(
 	tr.LeaseOwner = leaseOwner
 	tr.LeaseToken = leaseTokenUUID
 
+	// Emit task.leased event to outbox
+	evt := contracts.NewEvent(
+		contracts.EventTaskLeased,
+		tr.WorkflowRunID,
+		&tr.ID,
+		tr.Attempt,
+		"",
+		map[string]any{
+			"node_id":   tr.NodeID,
+			"worker_id": workerID,
+		},
+	)
+	if payloadBytes, err := evt.ToJSON(); err == nil {
+		_, _ = tx.Exec(ctx, `
+			INSERT INTO outbox_events (id, event_type, workflow_run_id, task_run_id, payload, created_at, sent_at)
+			VALUES ($1::uuid, $2, $3::uuid, $4::uuid, $5::jsonb, NOW(), NULL);
+		`, evt.EventID, string(evt.EventType), tr.WorkflowRunID, tr.ID, string(payloadBytes))
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return nil, err
+	}
+
 	return &tr, nil
 }
 
@@ -95,6 +124,12 @@ func (r *PostgresRepository) CommitTaskSuccess(
 	leaseToken string,
 	outputRef string,
 ) error {
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+
 	query := `
 		UPDATE task_runs
 		SET state = 'SUCCEEDED',
@@ -103,19 +138,40 @@ func (r *PostgresRepository) CommitTaskSuccess(
 		    version = version + 1
 		WHERE id = $2::uuid
 		  AND state IN ('LEASED', 'RUNNING')
-		  AND lease_token = $3::uuid;
+		  AND lease_token = $3::uuid
+		RETURNING workflow_run_id, node_id, attempt;
 	`
 
-	cmdTag, err := r.pool.Exec(ctx, query, outputRef, taskID, leaseToken)
+	var workflowRunID, nodeID string
+	var attempt int
+	err = tx.QueryRow(ctx, query, outputRef, taskID, leaseToken).Scan(&workflowRunID, &nodeID, &attempt)
 	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return domain.ErrStaleLeaseCommit
+		}
 		return err
 	}
 
-	if cmdTag.RowsAffected() == 0 {
-		return domain.ErrStaleLeaseCommit
+	// Emit task.succeeded event to outbox
+	evt := contracts.NewEvent(
+		contracts.EventTaskSucceeded,
+		workflowRunID,
+		&taskID,
+		attempt,
+		"",
+		map[string]any{
+			"node_id":    nodeID,
+			"output_ref": outputRef,
+		},
+	)
+	if payloadBytes, err := evt.ToJSON(); err == nil {
+		_, _ = tx.Exec(ctx, `
+			INSERT INTO outbox_events (id, event_type, workflow_run_id, task_run_id, payload, created_at, sent_at)
+			VALUES ($1::uuid, $2, $3::uuid, $4::uuid, $5::jsonb, NOW(), NULL);
+		`, evt.EventID, string(evt.EventType), workflowRunID, taskID, string(payloadBytes))
 	}
 
-	return nil
+	return tx.Commit(ctx)
 }
 
 // CommitTaskFailure transitions a task to RETRY_WAIT (if retryAt is set) or FAILED/DLQ.
@@ -130,6 +186,12 @@ func (r *PostgresRepository) CommitTaskFailure(
 ) error {
 	errJSON, _ := json.Marshal(map[string]string{"message": errorMessage})
 
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+
 	query := `
 		UPDATE task_runs
 		SET state = $1,
@@ -139,19 +201,45 @@ func (r *PostgresRepository) CommitTaskFailure(
 		    version = version + 1
 		WHERE id = $4::uuid
 		  AND state IN ('LEASED', 'RUNNING')
-		  AND lease_token = $5::uuid;
+		  AND lease_token = $5::uuid
+		RETURNING workflow_run_id, node_id, attempt;
 	`
 
-	cmdTag, err := r.pool.Exec(ctx, query, string(targetState), string(errJSON), retryAt, taskID, leaseToken)
+	var workflowRunID, nodeID string
+	var attempt int
+	err = tx.QueryRow(ctx, query, string(targetState), string(errJSON), retryAt, taskID, leaseToken).Scan(&workflowRunID, &nodeID, &attempt)
 	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return domain.ErrStaleLeaseCommit
+		}
 		return err
 	}
 
-	if cmdTag.RowsAffected() == 0 {
-		return domain.ErrStaleLeaseCommit
+	eventType := contracts.EventTaskFailed
+	if targetState == domain.StateDLQ {
+		eventType = contracts.EventTaskDLQ
 	}
 
-	return nil
+	evt := contracts.NewEvent(
+		eventType,
+		workflowRunID,
+		&taskID,
+		attempt,
+		"",
+		map[string]any{
+			"node_id": nodeID,
+			"error":   errorMessage,
+			"state":   string(targetState),
+		},
+	)
+	if payloadBytes, err := evt.ToJSON(); err == nil {
+		_, _ = tx.Exec(ctx, `
+			INSERT INTO outbox_events (id, event_type, workflow_run_id, task_run_id, payload, created_at, sent_at)
+			VALUES ($1::uuid, $2, $3::uuid, $4::uuid, $5::jsonb, NOW(), NULL);
+		`, evt.EventID, string(evt.EventType), workflowRunID, taskID, string(payloadBytes))
+	}
+
+	return tx.Commit(ctx)
 }
 
 // CreateWorkflow persists a static DAG definition (workflow metadata, nodes, and edges) in a single transaction.
@@ -371,12 +459,13 @@ func (r *PostgresRepository) StartWorkflowRun(
 			contracts.EventTaskReady,
 			runID,
 			&taskID,
-			1,
+			0,
 			traceID,
 			map[string]any{
-				"node_id":   rootNodeID,
-				"task_type": nodeDef.Type,
-				"config":    nodeDef.Config,
+				"node_id":     rootNodeID,
+				"task_type":   nodeDef.Type,
+				"config":      nodeDef.Config,
+				"max_retries": nodeDef.MaxRetries,
 			},
 		)
 		taskPayload, _ := taskReadyEvent.ToJSON()

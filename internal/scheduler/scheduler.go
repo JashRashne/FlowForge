@@ -36,7 +36,7 @@ func (s *Scheduler) UnlockBlockedTasks(ctx context.Context) (int, error) {
 	// CTE query: Finds BLOCKED tasks in active workflows that have ZERO non-succeeded parents
 	query := `
 		WITH ready_candidates AS (
-			SELECT tr.id AS task_run_id, tr.workflow_run_id, tr.node_id, wn.task_type, wn.config, wr.workflow_id
+			SELECT tr.id AS task_run_id, tr.workflow_run_id, tr.node_id, wn.task_type, wn.config, wn.max_retries, wr.workflow_id
 			FROM task_runs tr
 			JOIN workflow_runs wr ON tr.workflow_run_id = wr.id
 			JOIN workflow_nodes wn ON wr.workflow_id = wn.workflow_id AND tr.node_id = wn.node_id
@@ -56,7 +56,7 @@ func (s *Scheduler) UnlockBlockedTasks(ctx context.Context) (int, error) {
 		    version = task_runs.version + 1
 		FROM ready_candidates
 		WHERE task_runs.id = ready_candidates.task_run_id
-		RETURNING task_runs.id, task_runs.workflow_run_id, ready_candidates.node_id, ready_candidates.task_type, ready_candidates.config;
+		RETURNING task_runs.id, task_runs.workflow_run_id, ready_candidates.node_id, ready_candidates.task_type, ready_candidates.config, ready_candidates.max_retries;
 	`
 
 	rows, err := tx.Query(ctx, query)
@@ -71,13 +71,14 @@ func (s *Scheduler) UnlockBlockedTasks(ctx context.Context) (int, error) {
 		nodeID        string
 		taskType      string
 		config        map[string]any
+		maxRetries    int
 	}
 
 	var unlocked []unlockedTask
 	for rows.Next() {
 		var u unlockedTask
 		var configBytes []byte
-		if err := rows.Scan(&u.taskRunID, &u.workflowRunID, &u.nodeID, &u.taskType, &configBytes); err != nil {
+		if err := rows.Scan(&u.taskRunID, &u.workflowRunID, &u.nodeID, &u.taskType, &configBytes, &u.maxRetries); err != nil {
 			return 0, err
 		}
 		if len(configBytes) > 0 {
@@ -93,12 +94,13 @@ func (s *Scheduler) UnlockBlockedTasks(ctx context.Context) (int, error) {
 			contracts.EventTaskReady,
 			u.workflowRunID,
 			&u.taskRunID,
-			1,
+			0,
 			"",
 			map[string]any{
-				"node_id":   u.nodeID,
-				"task_type": u.taskType,
-				"config":    u.config,
+				"node_id":     u.nodeID,
+				"task_type":   u.taskType,
+				"config":      u.config,
+				"max_retries": u.maxRetries,
 			},
 		)
 		payloadBytes, _ := event.ToJSON()
@@ -130,7 +132,7 @@ func (s *Scheduler) RecoverExpiredLeases(ctx context.Context) (int, error) {
 
 	query := `
 		WITH expired AS (
-			SELECT tr.id AS task_run_id, tr.workflow_run_id, tr.node_id, tr.lease_owner, wn.task_type, wn.config
+			SELECT tr.id AS task_run_id, tr.workflow_run_id, tr.node_id, tr.lease_owner, wn.task_type, wn.config, wn.max_retries
 			FROM task_runs tr
 			JOIN workflow_runs wr ON tr.workflow_run_id = wr.id
 			JOIN workflow_nodes wn ON wr.workflow_id = wn.workflow_id AND tr.node_id = wn.node_id
@@ -147,7 +149,7 @@ func (s *Scheduler) RecoverExpiredLeases(ctx context.Context) (int, error) {
 		    version = task_runs.version + 1
 		FROM expired
 		WHERE task_runs.id = expired.task_run_id
-		RETURNING task_runs.id, task_runs.workflow_run_id, expired.node_id, expired.lease_owner, expired.task_type, expired.config, task_runs.attempt;
+		RETURNING task_runs.id, task_runs.workflow_run_id, expired.node_id, expired.lease_owner, expired.task_type, expired.config, expired.max_retries, task_runs.attempt;
 	`
 
 	rows, err := tx.Query(ctx, query)
@@ -163,6 +165,7 @@ func (s *Scheduler) RecoverExpiredLeases(ctx context.Context) (int, error) {
 		previousOwner *string
 		taskType      string
 		config        map[string]any
+		maxRetries    int
 		attempt       int
 	}
 
@@ -170,7 +173,7 @@ func (s *Scheduler) RecoverExpiredLeases(ctx context.Context) (int, error) {
 	for rows.Next() {
 		var r recoveredTask
 		var configBytes []byte
-		if err := rows.Scan(&r.taskRunID, &r.workflowRunID, &r.nodeID, &r.previousOwner, &r.taskType, &configBytes, &r.attempt); err != nil {
+		if err := rows.Scan(&r.taskRunID, &r.workflowRunID, &r.nodeID, &r.previousOwner, &r.taskType, &configBytes, &r.maxRetries, &r.attempt); err != nil {
 			return 0, err
 		}
 		if len(configBytes) > 0 {
@@ -189,10 +192,11 @@ func (s *Scheduler) RecoverExpiredLeases(ctx context.Context) (int, error) {
 			r.attempt,
 			"",
 			map[string]any{
-				"node_id":   r.nodeID,
-				"task_type": r.taskType,
-				"config":    r.config,
-				"recovered": true,
+				"node_id":     r.nodeID,
+				"task_type":   r.taskType,
+				"config":      r.config,
+				"max_retries": r.maxRetries,
+				"recovered":   true,
 			},
 		)
 		payloadBytes, _ := event.ToJSON()
@@ -223,7 +227,7 @@ func (s *Scheduler) AdvanceRetries(ctx context.Context) (int, error) {
 
 	query := `
 		WITH retryable AS (
-			SELECT tr.id AS task_run_id, tr.workflow_run_id, tr.node_id, wn.task_type, wn.config, tr.attempt
+			SELECT tr.id AS task_run_id, tr.workflow_run_id, tr.node_id, wn.task_type, wn.config, wn.max_retries, tr.attempt
 			FROM task_runs tr
 			JOIN workflow_runs wr ON tr.workflow_run_id = wr.id
 			JOIN workflow_nodes wn ON wr.workflow_id = wn.workflow_id AND tr.node_id = wn.node_id
@@ -234,10 +238,11 @@ func (s *Scheduler) AdvanceRetries(ctx context.Context) (int, error) {
 		UPDATE task_runs
 		SET state = 'READY',
 		    retry_at = NULL,
+		    attempt = task_runs.attempt + 1,
 		    version = task_runs.version + 1
 		FROM retryable
 		WHERE task_runs.id = retryable.task_run_id
-		RETURNING task_runs.id, task_runs.workflow_run_id, retryable.node_id, retryable.task_type, retryable.config, retryable.attempt;
+		RETURNING task_runs.id, task_runs.workflow_run_id, retryable.node_id, retryable.task_type, retryable.config, retryable.max_retries, task_runs.attempt;
 	`
 
 	rows, err := tx.Query(ctx, query)
@@ -252,6 +257,7 @@ func (s *Scheduler) AdvanceRetries(ctx context.Context) (int, error) {
 		nodeID        string
 		taskType      string
 		config        map[string]any
+		maxRetries    int
 		attempt       int
 	}
 
@@ -259,7 +265,7 @@ func (s *Scheduler) AdvanceRetries(ctx context.Context) (int, error) {
 	for rows.Next() {
 		var r retryTask
 		var configBytes []byte
-		if err := rows.Scan(&r.taskRunID, &r.workflowRunID, &r.nodeID, &r.taskType, &configBytes, &r.attempt); err != nil {
+		if err := rows.Scan(&r.taskRunID, &r.workflowRunID, &r.nodeID, &r.taskType, &configBytes, &r.maxRetries, &r.attempt); err != nil {
 			return 0, err
 		}
 		if len(configBytes) > 0 {
@@ -277,10 +283,11 @@ func (s *Scheduler) AdvanceRetries(ctx context.Context) (int, error) {
 			r.attempt,
 			"",
 			map[string]any{
-				"node_id":   r.nodeID,
-				"task_type": r.taskType,
-				"config":    r.config,
-				"retried":   true,
+				"node_id":     r.nodeID,
+				"task_type":   r.taskType,
+				"config":      r.config,
+				"max_retries": r.maxRetries,
+				"retried":     true,
 			},
 		)
 		payloadBytes, _ := event.ToJSON()

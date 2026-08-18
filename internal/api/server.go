@@ -3,8 +3,8 @@ package api
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
-	"strings"
 	"time"
 
 	"github.com/flowforge/flowforge/internal/dag"
@@ -239,11 +239,7 @@ func (s *Server) handleGetRunTasks(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleListWorkers(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
-	keys, err := s.redisClient.Keys(ctx, "worker:*").Result()
-	if err != nil {
-		http.Error(w, `{"error":"`+err.Error()+`"}`, http.StatusInternalServerError)
-		return
-	}
+	defaultWorkers := []string{"worker-1", "worker-2", "worker-3"}
 
 	type workerStatus struct {
 		ID     string `json:"id"`
@@ -251,11 +247,24 @@ func (s *Server) handleListWorkers(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var workers []workerStatus
-	for _, key := range keys {
-		workerID := strings.TrimPrefix(key, "worker:")
+	for _, id := range defaultWorkers {
+		killedKey := "worker:killed:" + id
+		isKilled, _ := s.redisClient.Exists(ctx, killedKey).Result()
+
+		status := "healthy"
+		if isKilled > 0 {
+			status = "killed"
+		} else {
+			aliveKey := "worker:" + id
+			isAlive, _ := s.redisClient.Exists(ctx, aliveKey).Result()
+			if isAlive == 0 {
+				status = "killed"
+			}
+		}
+
 		workers = append(workers, workerStatus{
-			ID:     workerID,
-			Status: "healthy",
+			ID:     id,
+			Status: status,
 		})
 	}
 
@@ -272,13 +281,47 @@ func (s *Server) handleKillWorker(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Delete heartbeat key in Redis immediately
-	key := "worker:" + body.WorkerID
-	_ = s.redisClient.Del(r.Context(), key).Err()
+	ctx := r.Context()
+	killedKey := "worker:killed:" + body.WorkerID
+	aliveKey := "worker:" + body.WorkerID
+
+	// Check if already killed; if so, toggle / revive it!
+	isKilled, _ := s.redisClient.Exists(ctx, killedKey).Result()
+	newStatus := "killed"
+
+	if isKilled > 0 {
+		// Revive worker
+		_ = s.redisClient.Del(ctx, killedKey).Err()
+		_ = s.redisClient.Set(ctx, aliveKey, "alive", 5*time.Second).Err()
+		newStatus = "healthy"
+
+		// Publish worker revived heartbeat event
+		_ = s.redisClient.XAdd(ctx, &redis.XAddArgs{
+			Stream: "stream:events",
+			Values: map[string]any{
+				"data": fmt.Sprintf(`{"event_id":"%s","event_type":"worker.heartbeat","occurred_at":"%s","payload":{"worker_id":"%s","status":"revived"}}`,
+					uuid.NewString(), time.Now().UTC().Format(time.RFC3339), body.WorkerID),
+			},
+		}).Err()
+	} else {
+		// Kill worker
+		_ = s.redisClient.Set(ctx, killedKey, "1", 0).Err()
+		_ = s.redisClient.Del(ctx, aliveKey).Err()
+
+		// Publish worker offline event to stream:events
+		_ = s.redisClient.XAdd(ctx, &redis.XAddArgs{
+			Stream: "stream:events",
+			Values: map[string]any{
+				"data": fmt.Sprintf(`{"event_id":"%s","event_type":"worker.offline","occurred_at":"%s","payload":{"worker_id":"%s","reason":"heartbeat_stopped"}}`,
+					uuid.NewString(), time.Now().UTC().Format(time.RFC3339), body.WorkerID),
+			},
+		}).Err()
+	}
 
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(map[string]any{
-		"killed_worker": body.WorkerID,
-		"status":        "heartbeat_stopped",
+		"worker_id": body.WorkerID,
+		"status":    newStatus,
 	})
 }
+

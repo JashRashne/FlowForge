@@ -28,13 +28,14 @@ type AdapterRegistry struct {
 	adapters map[string]TaskAdapter
 }
 
-// NewDefaultRegistry creates a registry pre-loaded with synthetic and HTTP adapters.
+// NewDefaultRegistry creates a registry pre-loaded with synthetic, HTTP, and Python adapters.
 func NewDefaultRegistry() *AdapterRegistry {
 	r := &AdapterRegistry{
 		adapters: make(map[string]TaskAdapter),
 	}
 	r.Register("synthetic", &SyntheticAdapter{})
 	r.Register("http", &HTTPAdapter{client: &http.Client{Timeout: 30 * time.Second}})
+	r.Register("python", &PythonAdapter{})
 	return r
 }
 
@@ -142,4 +143,37 @@ func (h *HTTPAdapter) Execute(ctx context.Context, config map[string]any) (strin
 	}
 
 	return string(respBytes), nil
+}
+
+// PythonAdapter simulates or executes Python tasks/scripts.
+type PythonAdapter struct{}
+
+func (p *PythonAdapter) Execute(ctx context.Context, config map[string]any) (string, error) {
+	sleepMs := 600
+	if sleepMsVal, ok := config["sleep_ms"]; ok {
+		switch v := sleepMsVal.(type) {
+		case int:
+			sleepMs = v
+		case float64:
+			sleepMs = int(v)
+		}
+	}
+	if sleepMs > 0 {
+		select {
+		case <-ctx.Done():
+			return "", ctx.Err()
+		case <-time.After(time.Duration(sleepMs) * time.Millisecond):
+		}
+	}
+
+	if shouldFail, ok := config["should_fail"].(bool); ok && shouldFail {
+		return "", fmt.Errorf("%w: python script failed", ErrAdapterFailed)
+	}
+
+	scriptName := "normalize.py"
+	if s, ok := config["script"].(string); ok && s != "" {
+		scriptName = s
+	}
+
+	return fmt.Sprintf(`{"status":"python_success","script":"%s"}`, scriptName), nil
 }

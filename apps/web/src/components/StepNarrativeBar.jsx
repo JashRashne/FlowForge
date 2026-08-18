@@ -14,7 +14,8 @@ export default function StepNarrativeBar({
   onStepPrev,
   onReset,
   speed,
-  onSpeedChange
+  onSpeedChange,
+  onRunWorkflow
 }) {
   if (!isSimulationMode) {
     return (
@@ -51,17 +52,30 @@ export default function StepNarrativeBar({
           </div>
         </div>
 
-        {isBackendConnected ? (
-          <div className="neo-pill pill-running" style={{ background: '#DCFCE7', color: '#166534', border: '1.5px solid #16A34A', fontWeight: 800 }}>
-            <Wifi size={12} />
-            WEBSOCKET LIVE
-          </div>
-        ) : (
-          <div className="neo-pill pill-failed" style={{ background: '#FEE2E2', color: '#991B1B', border: '1.5px solid #DC2626', fontWeight: 800 }}>
-            <WifiOff size={12} />
-            BACKEND OFFLINE
-          </div>
-        )}
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+          {isBackendConnected && onRunWorkflow && (
+            <button
+              onClick={onRunWorkflow}
+              className="neo-btn neo-btn-sm neo-btn-primary"
+              style={{ padding: '0.35rem 0.75rem', fontSize: '0.8rem' }}
+            >
+              <Play size={13} />
+              Run Live Workflow
+            </button>
+          )}
+
+          {isBackendConnected ? (
+            <div className="neo-pill pill-running" style={{ background: '#DCFCE7', color: '#166534', border: '1.5px solid #16A34A', fontWeight: 800 }}>
+              <Wifi size={12} />
+              WEBSOCKET LIVE
+            </div>
+          ) : (
+            <div className="neo-pill pill-failed" style={{ background: '#FEE2E2', color: '#991B1B', border: '1.5px solid #DC2626', fontWeight: 800 }}>
+              <WifiOff size={12} />
+              BACKEND OFFLINE
+            </div>
+          )}
+        </div>
       </div>
     );
   }

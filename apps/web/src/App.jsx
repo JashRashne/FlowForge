@@ -16,10 +16,10 @@ const PRESETS = {
     name: 'Diamond Data Pipeline',
     description: '1 Ingest Node ➔ 2 Parallel Transform Tasks ➔ 1 Report Aggregation',
     nodes: {
-      extract: { id: 'extract', type: 'http', config: { url: 'https://httpbin.org/get', method: 'GET' }, max_retries: 3 },
-      transform_a: { id: 'transform_a', type: 'python', config: { script: 'normalize.py' }, max_retries: 2 },
-      transform_b: { id: 'transform_b', type: 'synthetic', config: { sleep_ms: 1200 }, max_retries: 2 },
-      report: { id: 'report', type: 'synthetic', config: { sleep_ms: 800 }, max_retries: 1 }
+      extract: { id: 'extract', type: 'synthetic', config: { sleep_ms: 600, result: '{"extracted_records": 2500}' }, max_retries: 3 },
+      transform_a: { id: 'transform_a', type: 'python', config: { script: 'normalize.py', sleep_ms: 800 }, max_retries: 2 },
+      transform_b: { id: 'transform_b', type: 'synthetic', config: { sleep_ms: 1000 }, max_retries: 2 },
+      report: { id: 'report', type: 'synthetic', config: { sleep_ms: 600, result: '{"report_generated": true}' }, max_retries: 1 }
     },
     edges: [
       { from: 'extract', to: 'transform_a' },
@@ -76,7 +76,7 @@ const PRESETS = {
     name: 'Zombie Worker Fencing Pipeline',
     description: 'Auth Check ➔ Long Compute (GC Freeze / Stale Commit Rejection) ➔ Emit Metrics',
     nodes: {
-      auth_check: { id: 'auth_check', type: 'http', config: { url: 'https://httpbin.org/get' }, max_retries: 2 },
+      auth_check: { id: 'auth_check', type: 'synthetic', config: { sleep_ms: 400, result: '{"authorized": true}' }, max_retries: 2 },
       long_compute: { id: 'long_compute', type: 'python', config: { script: 'ml_inference.py', sleep_ms: 2000 }, max_retries: 2 },
       emit_metrics: { id: 'emit_metrics', type: 'synthetic', config: { sleep_ms: 500 }, max_retries: 1 }
     },
@@ -90,9 +90,9 @@ const PRESETS = {
     name: 'Payment Processing (Idempotent Deduplication)',
     description: 'Fetch Order ➔ Charge Payment (Duplicate Stream Delivery Protected) ➔ Send Receipt',
     nodes: {
-      fetch_order: { id: 'fetch_order', type: 'http', config: { url: 'https://httpbin.org/get' }, max_retries: 2 },
+      fetch_order: { id: 'fetch_order', type: 'synthetic', config: { sleep_ms: 400, result: '{"order_id": "ORD-9921"}' }, max_retries: 2 },
       process_payment: { id: 'process_payment', type: 'synthetic', config: { amount: 500, sleep_ms: 1000 }, max_retries: 1 },
-      send_receipt: { id: 'send_receipt', type: 'synthetic', config: { email: 'user@example.com' }, max_retries: 1 }
+      send_receipt: { id: 'send_receipt', type: 'synthetic', config: { email: 'user@example.com', sleep_ms: 500 }, max_retries: 1 }
     },
     edges: [
       { from: 'fetch_order', to: 'process_payment' },
@@ -170,6 +170,44 @@ export default function App() {
         .catch(() => setIsBackendConnected(false));
     }
   }, [isSimulationMode]);
+
+  // Real Backend WebSocket Event Subscriber
+  useEffect(() => {
+    let ws;
+    let reconnectTimer;
+
+    const connectWS = () => {
+      try {
+        ws = new WebSocket(WS_URL);
+        ws.onopen = () => {
+          setIsBackendConnected(true);
+        };
+        ws.onmessage = (msg) => {
+          try {
+            const data = JSON.parse(msg.data);
+            setEvents(prev => [data, ...prev.slice(0, 49)]);
+          } catch (e) {
+            console.error('Failed to parse WebSocket message', e);
+          }
+        };
+        ws.onclose = () => {
+          reconnectTimer = setTimeout(connectWS, 2500);
+        };
+        ws.onerror = () => {
+          ws.close();
+        };
+      } catch (e) {
+        reconnectTimer = setTimeout(connectWS, 2500);
+      }
+    };
+
+    connectWS();
+
+    return () => {
+      if (ws) ws.close();
+      if (reconnectTimer) clearTimeout(reconnectTimer);
+    };
+  }, []);
 
   // Sync view state with browser back/forward and hash changes
   useEffect(() => {
@@ -285,10 +323,33 @@ export default function App() {
   useEffect(() => {
     if (!isSimulationMode) {
       fetchRealState();
-      const interval = setInterval(fetchRealState, 1000);
+      const interval = setInterval(fetchRealState, 800);
       return () => clearInterval(interval);
     }
   }, [fetchRealState, isSimulationMode]);
+
+  // Trigger Real Cluster Workflow Run
+  const triggerRealWorkflowRun = async (def) => {
+    try {
+      await fetch(`${API_BASE}/workflows`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(def)
+      });
+      const rRes = await fetch(`${API_BASE}/workflows/${def.id}/runs`, { method: 'POST' });
+      if (rRes.ok) {
+        const rData = await rRes.json();
+        setActiveRunID(rData.run_id);
+        const tRes = await fetch(`${API_BASE}/runs/${rData.run_id}/tasks`);
+        if (tRes.ok) {
+          const tData = await tRes.json();
+          setTaskRuns(tData || []);
+        }
+      }
+    } catch (e) {
+      console.error('Failed to trigger workflow run:', e);
+    }
+  };
 
   // Select Preset
   const handleSelectPreset = async (key) => {
@@ -298,28 +359,15 @@ export default function App() {
     setCurrentStepIndex(0);
 
     if (!isSimulationMode) {
-      try {
-        await fetch(`${API_BASE}/workflows`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(def)
-        });
-        const rRes = await fetch(`${API_BASE}/workflows/${def.id}/runs`, { method: 'POST' });
-        if (rRes.ok) {
-          const rData = await rRes.json();
-          setActiveRunID(rData.run_id);
-          fetchRealState();
-        }
-      } catch (e) {
-        console.error(e);
-      }
+      await triggerRealWorkflowRun(def);
     }
   };
 
-  // Kill Worker
+  // Kill / Revive Worker
   const handleKillWorker = (workerID) => {
+    setWorkers(prev => prev.map(w => w.id === workerID ? { ...w, status: w.status === 'killed' || w.status === 'dead' ? 'healthy' : 'killed' } : w));
+
     if (isSimulationMode) {
-      setWorkers(prev => prev.map(w => w.id === workerID ? { ...w, status: w.status === 'killed' ? 'healthy' : 'killed' } : w));
       setEvents(prev => [{
         event_type: 'worker.offline',
         payload: { worker_id: workerID, reason: 'heartbeat_stopped' },
@@ -330,7 +378,10 @@ export default function App() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ worker_id: workerID })
-      }).then(() => fetchRealState());
+      })
+        .then(res => res.json())
+        .then(() => fetchRealState())
+        .catch(err => console.error('Failed to kill/revive worker:', err));
     }
   };
 
@@ -460,6 +511,7 @@ export default function App() {
         onReset={handleResetSimulation}
         speed={simulationSpeed}
         onSpeedChange={setSimulationSpeed}
+        onRunWorkflow={() => triggerRealWorkflowRun(activeWorkflow)}
       />
 
       {/* 3. Compact Live HUD Metrics */}
@@ -632,7 +684,8 @@ export default function App() {
           top: 0,
           right: 0,
           bottom: 0,
-          width: '380px',
+          width: '420px',
+          maxWidth: '90vw',
           background: '#FFFFFF',
           borderLeft: '3px solid #000000',
           boxShadow: '-6px 0px 0px rgba(0,0,0,0.15)',
@@ -641,43 +694,63 @@ export default function App() {
           overflowY: 'auto'
         }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.25rem', borderBottom: '2px solid #000', paddingBottom: '0.6rem' }}>
-            <h2>Task Inspector</h2>
-            <button onClick={() => setSelectedTask(null)} className="neo-btn neo-btn-sm">
+            <h2 style={{ fontSize: '1.2rem', fontWeight: 900 }}>Task Inspector</h2>
+            <button onClick={() => setSelectedTask(null)} className="neo-btn neo-btn-sm" style={{ padding: '0.2rem 0.5rem' }}>
               <X size={14} />
             </button>
           </div>
 
           <div style={{ marginBottom: '1rem' }}>
             <div style={{ fontSize: '0.75rem', fontFamily: 'var(--font-mono)', fontWeight: 800, color: 'var(--text-muted)' }}>NODE ID</div>
-            <div style={{ fontSize: '1.2rem', fontWeight: 800 }}>{selectedTask.node.id}</div>
+            <div style={{ fontSize: '1.2rem', fontWeight: 900, marginTop: '0.15rem' }}>{selectedTask.node.id}</div>
           </div>
 
           <div style={{ marginBottom: '1rem' }}>
             <div style={{ fontSize: '0.75rem', fontFamily: 'var(--font-mono)', fontWeight: 800, color: 'var(--text-muted)' }}>CURRENT STATE</div>
-            <span className="neo-pill pill-ready" style={{ marginTop: '0.2rem' }}>
+            <span className={`neo-pill ${selectedTask.run.state === 'SUCCEEDED' ? 'pill-succeeded' : selectedTask.run.state === 'DLQ' ? 'pill-dlq' : selectedTask.run.state === 'FAILED' ? 'pill-failed' : 'pill-ready'}`} style={{ marginTop: '0.3rem', display: 'inline-flex' }}>
               {selectedTask.run.state || 'BLOCKED'}
             </span>
           </div>
 
           <div style={{ marginBottom: '1rem' }}>
             <div style={{ fontSize: '0.75rem', fontFamily: 'var(--font-mono)', fontWeight: 800, color: 'var(--text-muted)' }}>LEASE OWNER</div>
-            <div style={{ fontFamily: 'var(--font-mono)', fontWeight: 800 }}>
+            <div style={{ fontFamily: 'var(--font-mono)', fontWeight: 800, marginTop: '0.15rem' }}>
               {selectedTask.run.lease_owner || 'None (Unleased)'}
             </div>
           </div>
 
           {selectedTask.run.output_ref && (
             <div style={{ marginBottom: '1rem' }}>
-              <div style={{ fontSize: '0.75rem', fontFamily: 'var(--font-mono)', fontWeight: 800, color: 'var(--text-muted)' }}>OUTPUT ARTIFACT</div>
-              <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.8rem', background: 'var(--pop-yellow)', padding: '0.4rem', border: '2px solid #000', borderRadius: '4px' }}>
-                {selectedTask.run.output_ref}
-              </div>
+              <div style={{ fontSize: '0.75rem', fontFamily: 'var(--font-mono)', fontWeight: 800, color: 'var(--text-muted)', marginBottom: '0.35rem' }}>OUTPUT ARTIFACT</div>
+              <pre style={{
+                fontFamily: 'var(--font-mono)',
+                fontSize: '0.75rem',
+                background: 'var(--pop-yellow)',
+                padding: '0.65rem 0.85rem',
+                border: '2px solid #000000',
+                boxShadow: '2px 2px 0px #000000',
+                borderRadius: '6px',
+                whiteSpace: 'pre-wrap',
+                wordBreak: 'break-all',
+                color: '#000000',
+                fontWeight: 700,
+                lineHeight: 1.4,
+                margin: 0
+              }}>
+                {(() => {
+                  try {
+                    return JSON.stringify(JSON.parse(selectedTask.run.output_ref), null, 2);
+                  } catch (e) {
+                    return selectedTask.run.output_ref;
+                  }
+                })()}
+              </pre>
             </div>
           )}
 
           <div>
-            <div style={{ fontSize: '0.75rem', fontFamily: 'var(--font-mono)', fontWeight: 800, color: 'var(--text-muted)', marginBottom: '0.3rem' }}>NODE CONFIGURATION</div>
-            <pre style={{ background: '#18181B', color: '#86EFAC', padding: '0.75rem', borderRadius: '6px', fontSize: '0.75rem', overflowX: 'auto', border: '2px solid #000' }}>
+            <div style={{ fontSize: '0.75rem', fontFamily: 'var(--font-mono)', fontWeight: 800, color: 'var(--text-muted)', marginBottom: '0.35rem' }}>NODE CONFIGURATION</div>
+            <pre style={{ background: '#18181B', color: '#86EFAC', padding: '0.75rem', borderRadius: '6px', fontSize: '0.75rem', overflowX: 'auto', border: '2px solid #000', whiteSpace: 'pre-wrap', wordBreak: 'break-all', margin: 0 }}>
               {JSON.stringify(selectedTask.node.config || {}, null, 2)}
             </pre>
           </div>

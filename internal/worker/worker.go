@@ -69,8 +69,18 @@ func (w *Worker) EnsureConsumerGroup(ctx context.Context) error {
 	return nil
 }
 
+// IsKilled checks if this worker has been paused/killed via chaos injection.
+func (w *Worker) IsKilled(ctx context.Context) bool {
+	killedKey := fmt.Sprintf("worker:killed:%s", w.id)
+	exists, err := w.redisClient.Exists(ctx, killedKey).Result()
+	return err == nil && exists > 0
+}
+
 // EmitHeartbeat sets an expiring key in Redis to declare worker liveness (TTL: 5 seconds).
 func (w *Worker) EmitHeartbeat(ctx context.Context) error {
+	if w.IsKilled(ctx) {
+		return nil
+	}
 	key := fmt.Sprintf("worker:%s", w.id)
 	return w.redisClient.Set(ctx, key, "alive", 5*time.Second).Err()
 }
@@ -153,8 +163,26 @@ func (w *Worker) ProcessNextTask(ctx context.Context) (bool, error) {
 			return false, commitErr
 		}
 	} else {
-		// Record failure
-		_ = w.repo.CommitTaskFailure(ctx, taskID, *taskRun.LeaseToken, execErr.Error(), nil, domain.StateFailed)
+		// Calculate retry vs DLQ quarantine
+		maxRetries := 2
+		if mr, ok := event.Payload["max_retries"].(float64); ok {
+			maxRetries = int(mr)
+		} else if mr, ok := event.Payload["max_retries"].(int); ok {
+			maxRetries = mr
+		}
+
+		if taskRun.Attempt < maxRetries {
+			// Exponential backoff retry
+			backoffSec := 1 << taskRun.Attempt
+			if backoffSec > 10 {
+				backoffSec = 10
+			}
+			retryAt := time.Now().Add(time.Duration(backoffSec) * time.Second)
+			_ = w.repo.CommitTaskFailure(ctx, taskID, *taskRun.LeaseToken, execErr.Error(), &retryAt, domain.StateRetryWait)
+		} else {
+			// Exhausted retries -> quarantine task to DLQ
+			_ = w.repo.CommitTaskFailure(ctx, taskID, *taskRun.LeaseToken, execErr.Error(), nil, domain.StateDLQ)
+		}
 	}
 
 	// 6. Acknowledge message in Redis stream
@@ -179,6 +207,10 @@ func (w *Worker) Start(ctx context.Context) error {
 		case <-heartbeatTicker.C:
 			_ = w.EmitHeartbeat(ctx)
 		default:
+			if w.IsKilled(ctx) {
+				time.Sleep(500 * time.Millisecond)
+				continue
+			}
 			_, _ = w.ProcessNextTask(ctx)
 		}
 	}
