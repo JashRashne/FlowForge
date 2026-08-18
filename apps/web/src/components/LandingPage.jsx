@@ -133,7 +133,7 @@ export default function LandingPage({ onLaunchSimulator }) {
           </button>
 
           <a
-            href="https://www.youtube.com/watch?v=dQw4w9WgXcQ"
+            href="https://youtu.be/CiqwISr2ud8"
             target="_blank"
             rel="noreferrer"
             className="neo-btn neo-btn-coral"
