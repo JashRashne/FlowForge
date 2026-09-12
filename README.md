@@ -7,6 +7,7 @@
 [![React](https://img.shields.io/badge/React-18-61DAFB?style=for-the-badge&logo=react&logoColor=black)](https://react.dev/)
 [![YouTube Demo](https://img.shields.io/badge/Demo-YouTube-FF0000?style=for-the-badge&logo=youtube&logoColor=white)](https://youtu.be/CiqwISr2ud8)
 [![License](https://img.shields.io/badge/License-MIT-green?style=for-the-badge)](LICENSE)
+[![CI](https://github.com/JashRashne/FlowForge/actions/workflows/ci.yml/badge.svg)](https://github.com/JashRashne/FlowForge/actions/workflows/ci.yml)
 
 **FlowForge** is a distributed Directed Acyclic Graph (DAG) workflow orchestration engine built from first principles in **Go**. It coordinates multi-step computational pipelines across horizontally scalable worker pools with lease-based task ownership, atomic fencing tokens, transactional outbox event streaming, and automated crash recovery.
 
